@@ -18,7 +18,7 @@ function startVideo() {
   
   navigator.mediaDevices.getUserMedia({ 
     video: { 
-      facingMode: "user" // Prefer front camera on mobile
+      facingMode: "user" //  front camera on mobile
     }, 
     audio: false 
   })
@@ -42,15 +42,20 @@ video.addEventListener('play', () => {
   setInterval(async () => {
     if (video.paused || video.ended || !faceapi.nets.tinyFaceDetector.params) return;
 
-    // Detect
-    const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
-      .withFaceExpressions();
+    // // Detect
+    // const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
+    //   .withFaceExpressions();
+
+    // NEW BLOCK: Faster for mobile
+.
+const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
+const detections = await faceapi.detectAllFaces(video, options).withFaceExpressions();
 
     // Resize
     const resizedDetections = faceapi.resizeResults(detections, displaySize);
 
     // --- NEW CODE: FLIP BOXES HORIZONTALLY ---
-    // Since the video is mirrored by CSS but the canvas isn't, we must
+    
     // manually flip the detection box X-coordinates so they align correctly.
     const mirroredDetections = resizedDetections.map(det => {
       const box = det.detection.box;
@@ -71,5 +76,5 @@ video.addEventListener('play', () => {
     faceapi.draw.drawDetections(canvas, mirroredDetections);
     faceapi.draw.drawFaceExpressions(canvas, mirroredDetections);
     
-  }, 100);
+  }, 500);
 });
