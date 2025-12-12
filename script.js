@@ -1,77 +1,98 @@
 const video = document.getElementById('video');
 const canvas = document.getElementById('overlay');
 const statusText = document.querySelector('.status');
-let videoStream = null;
 
-// Error handling to show issues on screen
+// 1. Setup Error Logging on Screen
 window.onerror = function (message) {
     statusText.style.color = "red";
     statusText.innerText = "Error: " + message;
 };
 
-// 1. Load Models
+// 2. Load Models First
+console.log("Loading models...");
 Promise.all([
   faceapi.nets.tinyFaceDetector.loadFromUri('./models'),
   faceapi.nets.faceExpressionNet.loadFromUri('./models')
 ]).then(startVideo).catch(err => {
     console.error(err);
     statusText.style.color = "red";
-    statusText.innerText = "Model Load Error. Check console.";
+    statusText.innerText = "Model Error. Check console.";
 });
 
-// 2. Start Video
+// 3. Start Camera
 function startVideo() {
   statusText.innerText = "Accessing camera...";
   navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false })
   .then(stream => {
     video.srcObject = stream;
-    statusText.innerText = "Starting video...";
+    // FORCE the video to play
+    video.play(); 
+    statusText.innerText = "Camera active. Starting AI...";
+    
+    // START DETECTION IMMEDIATELY (Don't wait for event listeners)
+    startDetectionLoop();
   })
-  .catch(err => statusText.innerText = "Camera denied: " + err);
+  .catch(err => {
+    statusText.style.color = "red";
+    statusText.innerText = "Camera Denied: " + err;
+  });
 }
 
-// 3. Detection Loop
-video.addEventListener('play', () => {
-  // We don't set fixed dimensions here anymore to avoid the 0x0 size bug
-  
-  setInterval(async () => {
-    if (video.paused || video.ended || !faceapi.nets.tinyFaceDetector.params) return;
+// 4. The Detection Loop
+function startDetectionLoop() {
+    // Wait slightly for video size to load
+    setTimeout(() => {
+        
+        // Loop every 500ms
+        setInterval(async () => {
+            // Safety: If video isn't ready, skip this frame
+            if (!video.videoWidth || video.paused) return;
 
-    // FIX 1: Ensure canvas matches video size dynamically
-    if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-        faceapi.matchDimensions(canvas, { width: video.videoWidth, height: video.videoHeight });
-    }
+            // FIX: Match canvas to video
+            if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+                faceapi.matchDimensions(canvas, { width: video.videoWidth, height: video.videoHeight });
+            }
 
-    const displaySize = { width: video.videoWidth, height: video.videoHeight };
+            const displaySize = { width: video.videoWidth, height: video.videoHeight };
 
-    // Detect faces
-    const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
-    const detections = await faceapi.detectAllFaces(video, options).withFaceExpressions();
+            try {
+                // Detect Face
+                const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
+                const detections = await faceapi.detectAllFaces(video, options).withFaceExpressions();
 
-    // FIX 2: Show detection status for debugging
-    if (detections.length > 0) {
-        statusText.innerText = `Face Detected! (${detections[0].expressions.neutral.toFixed(2)})`;
-        statusText.style.color = "#00ff00"; // Green text when working
-    } else {
-        statusText.innerText = "Scanning for faces...";
-        statusText.style.color = "white";
-    }
+                // Update Status Text
+                if (detections.length > 0) {
+                    const emotion = Object.keys(detections[0].expressions).reduce((a, b) => 
+                        detections[0].expressions[a] > detections[0].expressions[b] ? a : b
+                    );
+                    statusText.innerText = `Face Detected: ${emotion.toUpperCase()}`;
+                    statusText.style.color = "#00ff00"; // Green
+                } else {
+                    statusText.innerText = "Scanning for faces...";
+                    statusText.style.color = "white";
+                }
 
-    const resizedDetections = faceapi.resizeResults(detections, displaySize);
+                // Resize & Mirror Logic
+                const resizedDetections = faceapi.resizeResults(detections, displaySize);
+                
+                const mirroredDetections = resizedDetections.map(det => {
+                    const box = det.detection.box;
+                    const mirroredX = displaySize.width - box.x - box.width;
+                    const newBox = new faceapi.Box(mirroredX, box.y, box.width, box.height);
+                    return new faceapi.FaceExpressionsDetection(det.expressions, new faceapi.FaceDetection(det.detection.score, newBox, det.detection.imageDims));
+                });
 
-    // FIX 3: Robust Mirror Logic
-    const mirroredDetections = resizedDetections.map(det => {
-      const box = det.detection.box;
-      const mirroredX = displaySize.width - box.x - box.width;
-      const newBox = new faceapi.Box(mirroredX, box.y, box.width, box.height);
-      return new faceapi.FaceExpressionsDetection(det.expressions, new faceapi.FaceDetection(det.detection.score, newBox, det.detection.imageDims));
-    });
+                // Draw
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                faceapi.draw.drawDetections(canvas, mirroredDetections);
+                faceapi.draw.drawFaceExpressions(canvas, mirroredDetections);
 
-    // Draw
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    faceapi.draw.drawDetections(canvas, mirroredDetections);
-    faceapi.draw.drawFaceExpressions(canvas, mirroredDetections);
-    
-  }, 500);
-});
+            } catch (err) {
+                console.error("Detection Error:", err);
+            }
+
+        }, 500); // Check every half second
+        
+    }, 1000); // Wait 1 second after camera start to begin loop
+}
