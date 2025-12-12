@@ -1,46 +1,72 @@
-const video=document.getElementById('video');
-const overlay=document.getElementById('overlay');
-const ctx=overlay.getContext('2d');
-const loader=document.getElementById('loader');
-const toggleBtn=document.getElementById('toggleBtn');
-const emotionLabel=document.getElementById('emotionLabel');
-const cuteTitle=document.getElementById('cuteTitle');
-const cuteMessage=document.getElementById('cuteMessage');
+const video = document.getElementById('video');
+const canvas = document.getElementById('overlay');
+const statusText = document.querySelector('.status');
+let videoStream = null;
 
-async function initModels(){
-  loader.textContent='Loading models…';
-  const MODEL_URL='https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js/weights';
-  await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-  await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
-  loader.textContent='Ready';
+// 1. Load AI Models
+Promise.all([
+  faceapi.nets.tinyFaceDetector.loadFromUri('./models'),
+  faceapi.nets.faceExpressionNet.loadFromUri('./models')
+]).then(startVideo).catch(err => {
+  console.error(err);
+  statusText.innerText = "Error loading models. Check console.";
+});
+
+// 2. Start Video Stream
+function startVideo() {
+  statusText.innerText = "Accessing camera...";
+  
+  navigator.mediaDevices.getUserMedia({ 
+    video: { 
+      facingMode: "user" // Prefer front camera on mobile
+    }, 
+    audio: false 
+  })
+  .then(stream => {
+    videoStream = stream;
+    video.srcObject = stream;
+    statusText.innerText = "Detecting emotions...";
+  })
+  .catch(err => {
+    console.error("Camera error:", err);
+    statusText.innerText = "Camera access denied or not available.";
+  });
 }
 
-const opts=new faceapi.TinyFaceDetectorOptions({inputSize:224, scoreThreshold:0.5});
+// 3. Handle Video Play
+video.addEventListener('play', () => {
+  // Create canvas from video element
+  const displaySize = { width: video.videoWidth, height: video.videoHeight };
+  faceapi.matchDimensions(canvas, displaySize);
 
-async function startVideo(){
-  const stream=await navigator.mediaDevices.getUserMedia({video:true});
-  video.srcObject=stream;
-  video.onloadeddata=()=>detect();
-}
+  // Detection Loop
+  setInterval(async () => {
+    // Ensure video is ready
+    if (video.paused || video.ended || !faceapi.nets.tinyFaceDetector.params) return;
 
-async function detect(){
-  overlay.width=video.videoWidth;
-  overlay.height=video.videoHeight;
-  const det=await faceapi.detectSingleFace(video,opts).withFaceExpressions();
-  ctx.clearRect(0,0,overlay.width,overlay.height);
-  if(det){
-    const box=det.detection.box;
-    ctx.strokeStyle='red'; ctx.lineWidth=2;
-    ctx.strokeRect(box.x,box.y,box.width,box.height);
-    const expr=Object.entries(det.expressions).sort((a,b)=>b[1]-a[1])[0][0];
-    emotionLabel.textContent=expr;
-    cuteTitle.textContent='You look '+expr;
-    cuteMessage.textContent='This is for you ❤';
-  }
-  requestAnimationFrame(detect);
-}
+    // Detect faces and expressions
+    // TinyFaceDetector is lightweight and fast for mobile
+    const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
+      .withFaceExpressions();
 
-toggleBtn.onclick=async()=>{
-  await initModels();
-  startVideo();
-};
+    // Resize detections to match display size
+    const resizedDetections = faceapi.resizeResults(detections, displaySize);
+
+    // Clear previous drawing
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw detection box and expressions
+    faceapi.draw.drawDetections(canvas, resizedDetections);
+    faceapi.draw.drawFaceExpressions(canvas, resizedDetections);
+    
+  }, 100); // Run every 100ms
+});
+
+// Handle resize events to keep canvas aligned
+window.addEventListener('resize', () => {
+    if(videoStream) {
+        const displaySize = { width: video.clientWidth, height: video.clientHeight };
+        faceapi.matchDimensions(canvas, displaySize);
+    }
+});
