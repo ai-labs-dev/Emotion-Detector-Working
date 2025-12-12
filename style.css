@@ -55,6 +55,7 @@ canvas {
   position: absolute;
   top: 0;
   left: 0;
+  z-index: 10;
   /* transform: scaleX(-1); /* Mirror canvas to match video */ */
 }
 
