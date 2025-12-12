@@ -28,7 +28,7 @@ h1 {
   font-weight: 300;
   letter-spacing: 1px;
   text-align: center;
-  /* z-index: 10; */
+  z-index: 10;
 }
 
 /* Container for video and canvas overlap */
