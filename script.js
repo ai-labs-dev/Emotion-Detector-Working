@@ -22,7 +22,7 @@ Promise.all([
 // 3. Start Camera
 function startVideo() {
   statusText.innerText = "Accessing camera...";
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false })
+  navigator.mediaDevices.getUserMedia({ video: true, audio: false })
   .then(stream => {
     video.srcObject = stream;
     // FORCE the video to play
