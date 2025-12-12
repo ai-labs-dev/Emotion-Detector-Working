@@ -33,40 +33,43 @@ function startVideo() {
   });
 }
 
+
 // 3. Handle Video Play
 video.addEventListener('play', () => {
-  // Create canvas from video element
   const displaySize = { width: video.videoWidth, height: video.videoHeight };
   faceapi.matchDimensions(canvas, displaySize);
 
-  // Detection Loop
   setInterval(async () => {
-    // Ensure video is ready
     if (video.paused || video.ended || !faceapi.nets.tinyFaceDetector.params) return;
 
-    // Detect faces and expressions
-    // TinyFaceDetector is lightweight and fast for mobile
+    // Detect
     const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
       .withFaceExpressions();
 
-    // Resize detections to match display size
+    // Resize
     const resizedDetections = faceapi.resizeResults(detections, displaySize);
 
-    // Clear previous drawing
+    // --- NEW CODE: FLIP BOXES HORIZONTALLY ---
+    // Since the video is mirrored by CSS but the canvas isn't, we must
+    // manually flip the detection box X-coordinates so they align correctly.
+    const mirroredDetections = resizedDetections.map(det => {
+      const box = det.detection.box;
+      // Calculate the mirrored X position relative to the canvas width
+      const mirroredX = displaySize.width - box.x - box.width;
+      // Create new box with flipped X
+      const newBox = new faceapi.Box(mirroredX, box.y, box.width, box.height);
+      // Reconstruct the detection object with the new box
+      return new faceapi.FaceExpressionsDetection(det.expressions, new faceapi.FaceDetection(det.detection.score, newBox, det.detection.imageDims));
+    });
+  
+
+    // Clear canvas
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw detection box and expressions
-    faceapi.draw.drawDetections(canvas, resizedDetections);
-    faceapi.draw.drawFaceExpressions(canvas, resizedDetections);
+    // Draw the NEW mirrored results
+    faceapi.draw.drawDetections(canvas, mirroredDetections);
+    faceapi.draw.drawFaceExpressions(canvas, mirroredDetections);
     
-  }, 100); // Run every 100ms
-});
-
-// Handle resize events to keep canvas aligned
-window.addEventListener('resize', () => {
-    if(videoStream) {
-        const displaySize = { width: video.clientWidth, height: video.clientHeight };
-        faceapi.matchDimensions(canvas, displaySize);
-    }
+  }, 100);
 });
